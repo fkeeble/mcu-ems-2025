@@ -46,14 +46,12 @@ ADC_HandleTypeDef hadc1;
 
 I2C_HandleTypeDef hi2c1;
 
-I2C_LCD_HandleTypeDef lcd1;
-
 TIM_HandleTypeDef htim1;
 
 UART_HandleTypeDef huart2;
 
 /* USER CODE BEGIN PV */
-
+I2C_LCD_HandleTypeDef lcd1; 		//bring in LCD handler
 /* USER CODE END PV */
 
 /* Private function prototypes -----------------------------------------------*/
@@ -79,7 +77,7 @@ typedef enum {
 
 SystemState_t currentState = STATE_A;
 
-//=====PIN DEFINITIONS===== (for clarity)
+//=====PIN DEFINITIONS===== (for hardware clarity/file sharing)
 #define ADC_PORT GPIOA
 #define ADC_PIN GPIO_PIN_0				//PA0
 #define EXT_BUTTON_1_PORT GPIOA
@@ -128,23 +126,28 @@ uint8_t button2_pressed = 0;
 //=====STUDENT ID=====
 char student_id[9] = "24784821";		//defined student id
 
-//=====BUTTON DEBOUNCE FUNCTION=====
-uint8_t debounceButton(GPIO_TypeDef *port, uint16_t pin, uint32_t *last_press_time){ //will take port and pin information when i call the function in the loop
-	uint8_t current_state = HAL_GPIO_ReadPin(port, pin); //store button state
-	uint32_t current_time = HAL_GetTick();	//store current time in ms
-d
-	if (current_state == GPIO_PIN_SET){								//if the button is pressed
-		if (current_time - *last_press_time >= DEBOUNCE_DELAY) {	//and the debounce timer has passed
-			HAL_Delay(DEBOUNCE_DELAY);								//confirmation delay (may not need)
-			if (HAL_GPIO_ReadPin(port, pin) == GPIO_PIN_SET){		//check if still pressed
-				*last_press_time = current_time;					//update last pressed time
-				return 1; 											//valid debounced press
-			}
-		}
-	}
-	return 0; 	//button not pressed
-}
+/* //=====BUTTON DEBOUNCE FUNCTION=====
+uint8_t debounceButton(GPIO_TypeDef *port, uint16_t pin, uint32_t *last_press_time, uint8_t active_high) { //will take port and pin information when i call the function in the loop
+    uint8_t current_state = HAL_GPIO_ReadPin(port, pin); //store button state
+    uint32_t current_time = HAL_GetTick();//store current time in ms
+    uint8_t debounced_state = 0;
 
+    // Determine if the current state matches the active state
+    uint8_t is_active = (active_high && (current_state == GPIO_PIN_SET)) || (!active_high && (current_state == GPIO_PIN_RESET)); //depending on pull up or down (will cover both)
+
+    if (is_active) { //button currently in the active state
+        if (current_time - *last_press_time >= DEBOUNCE_DELAY) {
+            HAL_Delay(DEBOUNCE_DELAY); //confirmation delay (may not need)
+            if (is_active) {
+                *last_press_time = current_time;		//update last pressed time
+                debounced_state = 1; // Return 1 for a debounced active press
+            }
+        }
+    }
+
+    return debounced_state;
+}
+*/
 //=====MAP FUNCTION=====		// Calculates input range, calculates output range, then uses linear interpolation formula - taken from arduino source code
 int map(int x, int in_min, int in_max, int out_min, int out_max) {
     return (x - in_min) * (out_max - out_min) / (in_max - in_min) + out_min;
@@ -283,7 +286,7 @@ int main(void)
   /* MCU Configuration--------------------------------------------------------*/
 
   /* Reset of all peripherals, Initializes the Flash interface and the Systick. */
-	HAL_Init();
+  HAL_Init();
 
   /* USER CODE BEGIN Init */
   /* USER CODE END Init */
@@ -315,52 +318,60 @@ int main(void)
   /* Infinite loop */
   /* USER CODE BEGIN WHILE */
   while (1)
-  {
-	  //=====Debounce Control=====
-	  uint8_t button1_pressed = debounceButton(EXT_BUTTON_1_PORT, EXT_BUTTON_1_PIN, &last_button1_press_time);	//Calls debounce function and sends button and port info
-	  uint8_t button2_pressed = debounceButton(ONB_BUTTON_PORT, ONB_BUTTON_PIN, &last_button2_press_time);
+	  {
+	  	 /* uint8_t button2_pressed = debounceButton(EXT_BUTTON_1_PORT, EXT_BUTTON_1_PIN, &last_button2_press_time, 1);
+	  	  uint8_t button1_pressed = debounceButton(ONB_BUTTON_PORT, ONB_BUTTON_PIN, &last_button1_press_time, 1);
+	  	  HAL_Delay (5);
+	  	 */
+		  // ===== Direct Button Read with Active High Interpretation =====
+		  uint8_t button1_pressed = !HAL_GPIO_ReadPin(ONB_BUTTON_PORT, ONB_BUTTON_PIN);
+		  uint8_t button2_pressed = HAL_GPIO_ReadPin(EXT_BUTTON_1_PORT, EXT_BUTTON_1_PIN);
 
-	  //=====ADC CONTROL=====
-	  if (HAL_ADC_GetState(&hadc1) == HAL_ADC_STATE_REG_EOC) {		//checks if conversion is complete
-		  adc_value = HAL_ADC_GetValue(&hadc1);						//stores the adc value
-		  HAL_ADC_Start(&hadc1);									//restarts conversion for continuous readings
-	  }
-
-	  //=====UPDATING STATE=====
-	  if (button2_pressed) {										//Button 2 State change control
-		  if (currentState == STATE_A || currentState == STATE_C){	//if state is A or C change to B
-			  currentState = STATE_B;
-		  }	else if (currentState == STATE_B) {						//if state is B change to A
-			  currentState = STATE_A;
+		  // ===== ADC Control (Keep this) =====
+		  if (HAL_ADC_GetState(&hadc1) == HAL_ADC_STATE_REG_EOC) {
+			  adc_value = HAL_ADC_GetValue(&hadc1);
+			  HAL_ADC_Start(&hadc1);
 		  }
+
+		  // ===== Updating State =====
+		  SystemState_t previousState = currentState; // Store the previous state
+
+		  if (button2_pressed) {
+			  if (currentState == STATE_A || currentState == STATE_C){
+				  currentState = STATE_B;
+			  }	else if (currentState == STATE_B) {
+				  currentState = STATE_A;
+			  }
+		  }
+
+		  if (currentState == STATE_A && button1_pressed) {
+			  currentState = STATE_C;
+		  }
+
+		  // ===== FUNCTION CONTROL DEPENDING ON STATE (Update LCD only on state change) =====
+		  if (currentState != previousState) {
+			  switch (currentState) {
+				  case STATE_A:
+					  stateA_actions();
+					  break;
+				  case STATE_B:
+					  stateB_actions();
+					  break;
+				  case STATE_C:
+					  stateC_actions();
+					  break;
+			  }
+		  }
+
+		  HAL_Delay(10); // stability
 	  }
-
-	  if (currentState == STATE_A && button1_pressed) {				//Button 1 State change control
-		  currentState = STATE_C;									//if state is A change to C
-	  }
-
-	  //=====FUNCTION CONTROL DEPENDING ON STATE=====
-	  switch (currentState) {
-	  	  case STATE_A:
-	  		  stateA_actions();
-	  		  break;
-	  	  case STATE_B:
-	  		  stateB_actions();				//EACH STATE A-C has different functions called depending on state
-	  		  break;
-	  	  case STATE_C:
-	  		  stateC_actions();
-	  		  break;
-
-	  }
-
-	  HAL_Delay(10); //stability
 
     /* USER CODE END WHILE */
 
     /* USER CODE BEGIN 3 */
-  }
+
   /* USER CODE END 3 */
-}
+  	  }
 
 /**
   * @brief System Clock Configuration
