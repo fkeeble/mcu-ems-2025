@@ -23,7 +23,7 @@
 /* USER CODE BEGIN Includes */
 #include "stdio.h" //used for printing to lcd
 #include "string.h" //for working with strings
-#include "i2c-lcd.h" //my lcd control library
+#include "i2c_lcd.h" //my lcd control library
 /* USER CODE END Includes */
 
 /* Private typedef -----------------------------------------------------------*/
@@ -45,6 +45,8 @@
 ADC_HandleTypeDef hadc1;
 
 I2C_HandleTypeDef hi2c1;
+
+I2C_LCD_HandleTypeDef lcd1;
 
 TIM_HandleTypeDef htim1;
 
@@ -119,8 +121,8 @@ uint32_t led1_blink_period = 500; 		//flashing period for on-board led
 //=====DEBOUNCE DEFINITIONS=====
 uint32_t last_button1_press_time = 0;	//timer for button 1 presses
 uint32_t last_button2_press_time = 0;	//timer for button 2 presses
-uint8_t button1_pressed;
-uint8_t button2_pressed;
+uint8_t button1_pressed = 0;
+uint8_t button2_pressed = 0;
 #define DEBOUNCE_DELAY 100				//delay for debouncing
 
 //=====STUDENT ID=====
@@ -130,7 +132,7 @@ char student_id[9] = "24784821";		//defined student id
 uint8_t debounceButton(GPIO_TypeDef *port, uint16_t pin, uint32_t *last_press_time){ //will take port and pin information when i call the function in the loop
 	uint8_t current_state = HAL_GPIO_ReadPin(port, pin); //store button state
 	uint32_t current_time = HAL_GetTick();	//store current time in ms
-
+d
 	if (current_state == GPIO_PIN_SET){								//if the button is pressed
 		if (current_time - *last_press_time >= DEBOUNCE_DELAY) {	//and the debounce timer has passed
 			HAL_Delay(DEBOUNCE_DELAY);								//confirmation delay (may not need)
@@ -152,7 +154,7 @@ int map(int x, int in_min, int in_max, int out_min, int out_max) {
 void lcd_print_int(int num){
 	char holdme[16]; //storing string version of integer
 	sprintf(holdme, "%d", num); //conversion of integer to string
-	lcd_send_string(holdme);			//send to LCD
+	lcd_puts(&lcd1, holdme);			//send to LCD
 }
 
 //=====SET SERVO PULSE FUNCTION=====
@@ -172,12 +174,12 @@ void setServoPulse(uint16_t pulse) {
 void stateA_actions(void) {
 
 	//LCD CONTROL
-	lcd_clear();						//clear lcd screen
-	lcd_put_cur(0, 0);					//position cursor in top left
-	lcd_send_string("SID:");			//print 'SID'
-	lcd_send_string(student_id);		//print my student ID number
-	lcd_put_cur(0, 1);					//position cursor to second line
-	lcd_send_string("MECHATRONICS 1");	//print string to second line
+	lcd_clear(&lcd1);							//clear lcd screen
+	lcd_gotoxy(&lcd1, 0, 0);					//position cursor in top left
+	lcd_puts(&lcd1, "SID:");					//print 'SID'
+	lcd_puts(&lcd1, student_id);				//print my student ID number
+	lcd_gotoxy(&lcd1, 0, 1);					//position cursor to second line
+	lcd_puts(&lcd1, "MECHATRONICS 1");			//print string to second line
 
 	//UART CONTROL
 	static uint32_t last_uart_transmit = 0; //timer starts from 0
@@ -200,13 +202,13 @@ void stateA_actions(void) {
 //=====STATE B ACTIONS=====
 void stateB_actions(void) {
 	//LCD CONTROL FOR ADC VALUES
-	lcd_clear();					//clear lcd
-	lcd_put_cur(0, 0);			//position cursor top left
-	lcd_send_string("ADC:");				//print ADC
+	lcd_clear(&lcd1);					//clear lcd
+	lcd_gotoxy(&lcd1, 0, 0);			//position cursor top left
+	lcd_puts(&lcd1, "ADC:");				//print ADC
 	lcd_print_int(adc_value);		//print the ADC value as an integer
-	lcd_send_string(" STATE B");
-	lcd_put_cur(0, 1);			//next line
-	lcd_send_string("MECHATRONICS 1");
+	lcd_puts(&lcd1, " STATE B");
+	lcd_gotoxy(&lcd1, 0, 1);			//next line
+	lcd_puts(&lcd1, "MECHATRONICS 1");
 
 
 	//UART CONTROL
@@ -256,7 +258,6 @@ void stateB_actions(void) {
 void stateC_actions(void) {
 
 	//check everything disabled
-	lcd_clear();
 	transmit_uart = 0;
 
 
@@ -282,10 +283,9 @@ int main(void)
   /* MCU Configuration--------------------------------------------------------*/
 
   /* Reset of all peripherals, Initializes the Flash interface and the Systick. */
-  HAL_Init();
+	HAL_Init();
 
   /* USER CODE BEGIN Init */
-  void lcd_init (void);
   /* USER CODE END Init */
 
   /* Configure the system clock */
@@ -304,6 +304,11 @@ int main(void)
   /* USER CODE BEGIN 2 */
 
   HAL_ADC_Start(&hadc1);					//begin adc conversion
+
+  lcd1.hi2c = &hi2c1;
+  lcd1.address = 0x4E; //lcd address
+
+  lcd_init(&lcd1); //initialise LCD
 
   /* USER CODE END 2 */
 
